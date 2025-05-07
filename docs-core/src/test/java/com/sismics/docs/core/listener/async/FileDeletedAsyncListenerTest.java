@@ -49,4 +49,5 @@ public class FileDeletedAsyncListenerTest extends BaseTransactionalTest {
         Assert.assertEquals(userDao.getById(user.getId()).getStorageCurrent(), Long.valueOf(10_000 - FILE_JPG_SIZE));
     }
 
+
 }

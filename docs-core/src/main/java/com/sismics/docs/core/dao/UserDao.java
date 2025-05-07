@@ -44,8 +44,8 @@ public class UserDao {
      * @return The authenticated user or null
      */
     public User authenticate(String username, String password) {
-        EntityManager em = ThreadLocalContext.get().getEntityManager();
-        Query q = em.createQuery("select u from User u where u.username = :username and u.deleteDate is null");
+        EntityManager em = ThreadLocalContext.get().getEntityManager();//用于与数据库交互的JPA对象
+        Query q = em.createQuery("select u from User u where u.username = :username and u.deleteDate is null");//创建查询语句
         q.setParameter("username", username);
         try {
             User user = (User) q.getSingleResult();

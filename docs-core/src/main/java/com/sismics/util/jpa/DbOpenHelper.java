@@ -105,7 +105,8 @@ abstract class DbOpenHelper {
             Integer currentVersion = Integer.parseInt(configBundle.getString("db.version"));
             log.info(MessageFormat.format("Found database version {0}, new version is {1}, executing database incremental update scripts", oldVersion, currentVersion));
             onUpgrade(oldVersion, currentVersion);
-            log.info("Database upgrade complete");
+            log.info("current version is: "+currentVersion);
+            // log.info("Database upgrade complete");
         } catch (Exception e) {
             exceptions.add(e);
             log.error("Unable to complete schema update", e);
