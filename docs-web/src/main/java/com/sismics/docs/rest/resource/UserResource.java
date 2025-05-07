@@ -288,12 +288,14 @@ public class UserResource extends BaseResource {
         @FormParam("code") String validationCodeStr,
         @FormParam("remember") boolean longLasted) {
         // Validate the input data
+        //从HTTP请求的表单数据中提取值
         username = StringUtils.strip(username);
         password = StringUtils.strip(password);
 
         // Get the user
         UserDao userDao = new UserDao();
         User user = null;
+        //如果用户名是访客，则允许登录
         if (Constants.GUEST_USER_ID.equals(username)) {
             if (ConfigUtil.getConfigBooleanValue(ConfigType.GUEST_LOGIN)) {
                 // Login as guest
@@ -339,7 +341,8 @@ public class UserResource extends BaseResource {
         
         // Cleanup old session tokens
         authenticationTokenDao.deleteOldSessionToken(user.getId());
-
+        
+        // 构建返回的HTTP相应
         JsonObjectBuilder response = Json.createObjectBuilder();
         int maxAge = longLasted ? TokenBasedSecurityFilter.TOKEN_LONG_LIFETIME : -1;
         NewCookie cookie = new NewCookie(TokenBasedSecurityFilter.COOKIE_NAME, token, "/", null, null, maxAge, false);

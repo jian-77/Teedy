@@ -140,4 +140,10 @@ public final class EMF {
     public static String getDriver() {
         return (String) properties.get("hibernate.connection.driver_class");
     }
+
+    public static void main(String[] args) {
+        Properties props = getEntityManagerProperties();
+        String databaseUrl = props.getProperty("hibernate.connection.url");
+        System.out.println("Database URL: " + databaseUrl);
+    }
 }
