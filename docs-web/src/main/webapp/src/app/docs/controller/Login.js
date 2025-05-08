@@ -49,6 +49,23 @@ angular.module('docs').controller('Login', function(Restangular, $scope, $rootSc
     });
   };
 
+   // register
+$scope.register = function() {
+    User.register($scope.user).then(function() {
+        // 注册成功，弹窗提示
+        var title = $translate.instant('register.success_title'); // 国际化标题
+        var msg = $translate.instant('register.success_message'); // 国际化消息
+        var btns = [{ result: 'ok', label: $translate.instant('ok'), cssClass: 'btn-primary' }];
+        $dialog.messageBox(title, msg, btns);
+    }, function(data) {
+        // 注册失败，弹窗提示
+        var title = $translate.instant('register.failed_title'); // 国际化标题
+        var msg = $translate.instant('register.failed_message'); // 国际化消息
+        var btns = [{ result: 'ok', label: $translate.instant('ok'), cssClass: 'btn-danger' }];
+        $dialog.messageBox(title, msg, btns);
+    });
+};
+
   // Password lost
   $scope.openPasswordLost = function () {
     $uibModal.open({

@@ -398,6 +398,84 @@ public class UserResource extends BaseResource {
         return Response.ok().entity(response.build()).cookie(cookie).build();
     }
 
+       /**
+     * This resource is used to register the user information.
+     * The "session" is only used to identify the user, no other data is stored in the session.
+     *
+     * @param username Username
+     * @param password Password
+     * @param longLasted Remember the user next time, create a long lasted session.
+     * @return Response
+     */
+    @POST
+    @Path("register")
+    public Response register(
+        @FormParam("username") String username,
+        @FormParam("password") String password,
+        @FormParam("code") String validationCodeStr,
+        @FormParam("remember") boolean longLasted) {
+        // Validate the input data
+        //从HTTP请求的表单数据中提取值
+        username = StringUtils.strip(username);
+        password = StringUtils.strip(password);
+
+        // Get the user
+        UserDao userDao = new UserDao();
+        User user = null;
+        //如果用户名是访客，则允许登录
+        if (Constants.GUEST_USER_ID.equals(username)) {
+            if (ConfigUtil.getConfigBooleanValue(ConfigType.GUEST_LOGIN)) {
+                // Login as guest
+                user = userDao.getActiveByUsername(Constants.GUEST_USER_ID);
+            }
+        } else {
+            // Login as a normal user--
+            user = AuthenticationUtil.authenticate(username, password);
+        }
+        if (user == null) {
+            throw new ForbiddenClientException();
+        }
+
+        // Two factor authentication
+        if (user.getTotpKey() != null) {
+            // If TOTP is enabled, ask a validation code
+            if (Strings.isNullOrEmpty(validationCodeStr)) {
+                throw new ClientException("ValidationCodeRequired", "An OTP validation code is required");
+            }
+            
+            // Check the validation code
+            int validationCode = ValidationUtil.validateInteger(validationCodeStr, "code");
+            GoogleAuthenticator googleAuthenticator = new GoogleAuthenticator();
+            if (!googleAuthenticator.authorize(user.getTotpKey(), validationCode)) {
+                throw new ForbiddenClientException();
+            }
+        }
+        
+        // Get the remote IP
+        String ip = request.getHeader("x-forwarded-for");
+        if (Strings.isNullOrEmpty(ip)) {
+            ip = request.getRemoteAddr();
+        }
+        
+        // Create a new session token
+        AuthenticationTokenDao authenticationTokenDao = new AuthenticationTokenDao();
+        AuthenticationToken authenticationToken = new AuthenticationToken()
+            .setUserId(user.getId())
+            .setLongLasted(longLasted)
+            .setIp(StringUtils.abbreviate(ip, 45))
+            .setUserAgent(StringUtils.abbreviate(request.getHeader("user-agent"), 1000));
+        String token = authenticationTokenDao.create(authenticationToken);
+        
+        // Cleanup old session tokens
+        authenticationTokenDao.deleteOldSessionToken(user.getId());
+        
+        // 构建返回的HTTP相应
+        JsonObjectBuilder response = Json.createObjectBuilder();
+        int maxAge = longLasted ? TokenBasedSecurityFilter.TOKEN_LONG_LIFETIME : -1;
+        NewCookie cookie = new NewCookie(TokenBasedSecurityFilter.COOKIE_NAME, token, "/", null, null, maxAge, false);
+        return Response.ok().entity(response.build()).cookie(cookie).build();
+    }
+    
     /**
      * Deletes the current user.
      *
