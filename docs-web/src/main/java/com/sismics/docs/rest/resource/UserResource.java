@@ -75,24 +75,20 @@ public class UserResource extends BaseResource {
      * @param email E-Mail
      * @return Response
      */
-    @PUT
-    public Response register(
-        @FormParam("username") String username,
-        @FormParam("password") String password,
-        @FormParam("email") String email,
-        @FormParam("storage_quota") String storageQuotaStr) {
-        if (!authenticate()) {
-            throw new ForbiddenClientException();
-        }
-        checkBaseFunction(BaseFunction.ADMIN);
-        
+    @POST
+    @Path("approve")
+    @Consumes(MediaType.APPLICATION_FORM_URLENCODED)
+    @Produces(MediaType.APPLICATION_JSON)
+    public Response approve(@FormParam("id") String id,
+                            @FormParam("username") String username,
+                            @FormParam("password") String password) {
         // Validate the input data
         username = ValidationUtil.validateLength(username, "username", 3, 50);
         ValidationUtil.validateUsername(username, "username");
-        password = ValidationUtil.validateLength(password, "password", 8, 50);
-        email = ValidationUtil.validateLength(email, "email", 1, 100);
+        password = ValidationUtil.validateLength(password, "password", 3, 50);
+        String email = "123@qq.com"; //由于注册时并未要求email，因此默认初始化
+        String storageQuotaStr= "10000";
         Long storageQuota = ValidationUtil.validateLong(storageQuotaStr, "storage_quota");
-        ValidationUtil.validateEmail(email, "email");
         
         // Create the user
         User user = new User();
@@ -106,7 +102,8 @@ public class UserResource extends BaseResource {
         // Create the user
         UserDao userDao = new UserDao();
         try {
-            userDao.create(user, principal.getId());
+            userDao.checkRegistration(id);
+            userDao.create(user, id);
         } catch (Exception e) {
             if ("AlreadyExistingUsername".equals(e.getMessage())) {
                 throw new ClientException("AlreadyExistingUsername", "Login already used", e);
@@ -421,59 +418,19 @@ public class UserResource extends BaseResource {
 
         // Get the user
         UserDao userDao = new UserDao();
-        User user = null;
-        //如果用户名是访客，则允许登录
-        if (Constants.GUEST_USER_ID.equals(username)) {
-            if (ConfigUtil.getConfigBooleanValue(ConfigType.GUEST_LOGIN)) {
-                // Login as guest
-                user = userDao.getActiveByUsername(Constants.GUEST_USER_ID);
-            }
-        } else {
-            // Login as a normal user--
-            user = AuthenticationUtil.authenticate(username, password);
-        }
-        if (user == null) {
+
+        boolean success = userDao.register(username, password);
+        
+        if (!success) {
             throw new ForbiddenClientException();
         }
 
-        // Two factor authentication
-        if (user.getTotpKey() != null) {
-            // If TOTP is enabled, ask a validation code
-            if (Strings.isNullOrEmpty(validationCodeStr)) {
-                throw new ClientException("ValidationCodeRequired", "An OTP validation code is required");
-            }
-            
-            // Check the validation code
-            int validationCode = ValidationUtil.validateInteger(validationCodeStr, "code");
-            GoogleAuthenticator googleAuthenticator = new GoogleAuthenticator();
-            if (!googleAuthenticator.authorize(user.getTotpKey(), validationCode)) {
-                throw new ForbiddenClientException();
-            }
-        }
-        
         // Get the remote IP
         String ip = request.getHeader("x-forwarded-for");
         if (Strings.isNullOrEmpty(ip)) {
             ip = request.getRemoteAddr();
         }
-        
-        // Create a new session token
-        AuthenticationTokenDao authenticationTokenDao = new AuthenticationTokenDao();
-        AuthenticationToken authenticationToken = new AuthenticationToken()
-            .setUserId(user.getId())
-            .setLongLasted(longLasted)
-            .setIp(StringUtils.abbreviate(ip, 45))
-            .setUserAgent(StringUtils.abbreviate(request.getHeader("user-agent"), 1000));
-        String token = authenticationTokenDao.create(authenticationToken);
-        
-        // Cleanup old session tokens
-        authenticationTokenDao.deleteOldSessionToken(user.getId());
-        
-        // 构建返回的HTTP相应
-        JsonObjectBuilder response = Json.createObjectBuilder();
-        int maxAge = longLasted ? TokenBasedSecurityFilter.TOKEN_LONG_LIFETIME : -1;
-        NewCookie cookie = new NewCookie(TokenBasedSecurityFilter.COOKIE_NAME, token, "/", null, null, maxAge, false);
-        return Response.ok().entity(response.build()).cookie(cookie).build();
+        return Response.ok().build();
     }
     
     /**
@@ -836,6 +793,61 @@ public class UserResource extends BaseResource {
         return Response.ok().entity(response.build()).build();
     }
     
+/**
+     * Returns all active users.
+     *
+     * @api {get} /user/list Get users
+     * @apiName GetUserList
+     * @apiGroup User
+     * @apiParam {Number} sort_column Column index to sort on
+     * @apiParam {Boolean} asc If true, sort in ascending order
+     * @apiParam {String} group Filter on this group
+     * @apiSuccess {Object[]} users List of users
+     * @apiSuccess {String} users.id ID
+     * @apiSuccess {String} users.username Username
+     * @apiSuccess {String} users.email E-mail
+     * @apiSuccess {Boolean} users.totp_enabled True if TOTP authentication is enabled
+     * @apiSuccess {Number} users.storage_quota Storage quota (in bytes)
+     * @apiSuccess {Number} users.storage_current Quota used (in bytes)
+     * @apiSuccess {Number} users.create_date Create date (timestamp)
+     * @apiSuccess {Number} users.disabled True if the user is disabled
+     * @apiError (client) ForbiddenError Access denied
+     * @apiPermission user
+     * @apiVersion 1.5.0
+     *
+     * @param sortColumn Sort index
+     * @param asc If true, ascending sorting, else descending
+     * @param groupName Only return users from this group
+     * @return Response
+     */
+    @GET
+    @Path("register")
+    public Response register(
+            @QueryParam("sort_column") Integer sortColumn,
+            @QueryParam("asc") Boolean asc,
+            @QueryParam("group") String groupName) {
+        if (!authenticate()) {
+            throw new ForbiddenClientException();
+        }
+        
+        JsonArrayBuilder registers = Json.createArrayBuilder();
+        
+        UserDao userDao = new UserDao();
+        List<UserDto> userDtoList = userDao.findUncheckedRegistrations();
+        for (UserDto userDto : userDtoList) {
+            registers.add(Json.createObjectBuilder()
+                    .add("id", userDto.getId())
+                    .add("username", userDto.getUsername())
+                    .add("password", userDto.getPassword()));
+        }
+        
+        JsonObjectBuilder response = Json.createObjectBuilder()
+                .add("users", registers);
+        return Response.ok().entity(response.build()).build();
+    }
+
+
+
     /**
      * Returns all active sessions.
      *

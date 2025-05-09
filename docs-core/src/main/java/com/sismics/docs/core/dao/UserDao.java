@@ -58,6 +58,39 @@ public class UserDao {
             return null;
         }
     }
+
+     /**
+     * register
+     * 
+     * @param username 
+     * @param password 
+     * @return boolean
+     * @throws Exception e
+     */
+    public boolean register(String username, String password) {
+        EntityManager em = ThreadLocalContext.get().getEntityManager(); // 用于与数据库交互的JPA对象
+        try {
+            // 创建一个新的用户注册记录
+            String id = UUID.randomUUID().toString(); // 生成唯一的ID
+            Date createDate = new Date(); // 当前时间作为创建时间
+            boolean checked = false; // 默认未检查
+    
+            // 插入数据到 T_USER_REGISTRATION 表
+            Query query = em.createNativeQuery("INSERT INTO T_USER_REGISTRATION (ID_C, USERNAME_C, PASSWORD_C, CHECKED_B, CREATEDATE_D) VALUES (:id, :username, :password, :checked, :createDate)");
+            query.setParameter("id", id);
+            query.setParameter("username", username);
+            query.setParameter("password", password); // 对密码进行加密存储
+            query.setParameter("checked", checked);
+            query.setParameter("createDate", createDate);
+            query.executeUpdate();
+    
+            return true; // 插入成功
+        } catch (Exception e) {
+            e.printStackTrace(); // 打印异常信息
+            return false; // 插入失败
+        }
+    }
+
     
     /**
      * Creates a new user.
@@ -161,6 +194,24 @@ public class UserDao {
         
         return user;
     }
+
+    /**
+     * check registration.
+
+     * @param userId User ID
+     * @return Updated user
+     */
+    public boolean checkRegistration(String userId) {
+        EntityManager em = ThreadLocalContext.get().getEntityManager();
+    
+        Query query = em.createNativeQuery("UPDATE T_USER_REGISTRATION SET CHECKED_B = true WHERE ID_C = :userId");
+        query.setParameter("userId", userId);
+    
+        int updatedRows = query.executeUpdate();
+        return updatedRows > 0;
+    }
+
+
 
     /**
      * Update the hashed password silently.
@@ -368,7 +419,47 @@ public class UserDao {
         }
         return userDtoList;
     }
-
+    
+    /**
+ * Returns the list of all unverified user registrations (CHECKED_B = false).
+ * 
+ * @return List of unverified user registrations
+ */
+public List<UserDto> findUncheckedRegistrations() {
+    Map<String, Object> parameterMap = new HashMap<>();
+    List<String> criteriaList = new ArrayList<>();
+    
+    // Build the base SQL query
+    StringBuilder sb = new StringBuilder("select r.ID_C as c0, r.USERNAME_C as c1, r.PASSWORD_C as c2, r.CHECKED_B as c3, r.CREATEDATE_D as c4");
+    sb.append(" from T_USER_REGISTRATION r ");
+    
+    // Add criteria for CHECKED_B = false
+    criteriaList.add("r.CHECKED_B = false");
+    
+    // Append criteria to the query
+    if (!criteriaList.isEmpty()) {
+        sb.append(" where ");
+        sb.append(String.join(" and ", criteriaList));
+    }
+    
+    // Perform the query
+    QueryParam queryParam = new QueryParam(sb.toString(), parameterMap);
+    @SuppressWarnings("unchecked")
+    List<Object[]> resultList = QueryUtil.getNativeQuery(queryParam).getResultList();
+    
+    // Assemble results
+    List<UserDto> registrationList = new ArrayList<>();
+    for (Object[] row : resultList) {
+        int i = 0;
+        UserDto registration = new  UserDto();
+        registration.setId((String) row[i++]);
+        registration.setUsername((String) row[i++]);
+        registration.setPassword((String) row[i++]);
+        registrationList.add(registration);
+    }
+    return registrationList;
+}
+    
     /**
      * Returns the global storage used by all users.
      *

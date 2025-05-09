@@ -27,6 +27,28 @@
   </div>
 
   <div class="col-md-8">
+    <table class="table table-hover table-registration">
+        <thead>
+            <tr>
+                <th>{{ 'settings.registration.username' | translate }}</th>
+                <th>{{ 'settings.registration.action' | translate }}</th>
+            </tr>
+        </thead>
+        <tbody>
+            <tr ng-repeat="registration in registrations | orderBy: 'username'">
+                <td>{{ registration.username}}</td>
+                <td>
+                    <button class="btn btn-primary btn-sm" ng-click="approveRegistration(registration)">
+                        {{ 'settings.registration.approve' | translate }}
+                    </button>
+                </td>
+            </tr>
+        </tbody>
+    </table>
+</div>
+</div>
+
+  <div class="col-md-8">
     <div ui-view="user"></div>
   </div>
 </div>

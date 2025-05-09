@@ -25,6 +25,7 @@ angular.module('docs').controller('UserGroup', function(Restangular, $scope, $st
     $state.go('user.profile', { username: user.username });
   };
 
+
   // Open a group
   $scope.openGroup = function(group) {
     $state.go('group.profile', { name: group.name });
