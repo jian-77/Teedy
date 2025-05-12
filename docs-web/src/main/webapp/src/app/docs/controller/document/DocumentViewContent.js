@@ -60,6 +60,56 @@ angular.module('docs').controller('DocumentViewContent', function ($scope, $root
     }
   };
 
+  $scope.AI = function (file) {
+    // 显示加载提示
+    $scope.isLoading = true;
+
+    // 使用 Restangular 获取文件内容
+    Restangular.one('file', file.id).one('analysis').get({ size: 'content' })
+        .then(function (response) {
+            // 隐藏加载提示
+            $scope.isLoading = false;
+
+            // 打开模态框显示文件内容
+            $uibModal.open({
+                template: '<div class="modal-header">' +
+                          '  <h3 class="modal-title">{{ file.name }}</h3>' +
+                          '</div>' +
+                          '<div class="modal-body">' +
+                          '  <pre style="max-height: 400px; overflow-y: auto;">{{ content }}</pre>' +
+                          '</div>' +
+                          '<div class="modal-footer">' +
+                          '  <button class="btn btn-primary" ng-click="$close()">{{ \'close\' | translate }}</button>' +
+                          '</div>',
+                controller: ['$scope', '$uibModalInstance', 'content', 'file', function ($scope, $uibModalInstance, content, file) {
+                    $scope.content = content;
+                    $scope.file = file;
+                }],
+                size: 'lg',
+                resolve: {
+                    content: function () {
+                        return response;  // Restangular 已经处理了响应数据
+                    },
+                    file: function () {
+                        return file;
+                    }
+                }
+            });
+        })
+        .catch(function (error) {
+            // 隐藏加载提示
+            $scope.isLoading = false;
+
+            // 处理错误情况
+            $scope.alerts.unshift({
+                type: 'danger',
+                msg: $translate.instant('document.view.content.file_content_error')
+            });
+            console.error('Error fetching file content:', error);
+        });
+};
+
+
   /**
    * Delete a file.
    */

@@ -127,6 +127,16 @@
                 </li>
                 <li role="separator" class="divider"></li>
                 <li>
+                <a href ng-click="AI(file)">
+                    <span class="fas fa-pencil-alt"></span>
+                    {{ 'AI analysis' | translate }}
+                </a>
+                </li>
+                <div ng-if="isLoading" class="loading-indicator">
+                    <p>{{ 'loading' | translate }}</p>
+                </div>
+                <li role="separator" class="divider"></li>
+                <li>
                   <a href ng-click="deleteFile(file)">
                     <span class="fas fa-trash text-danger"></span>
                     {{ 'delete' | translate }}
@@ -217,6 +227,15 @@
                 {{ 'document.view.content.open_versions' | translate }}
               </a>
             </li>
+        
+        <li role="separator" class="divider"></li>
+        <li>
+        <a href ng-click="renameFile(file)">
+            <span class="fas fa-pencil-alt"></span>
+            {{ 'rename' | translate }}
+        </a>
+        </li>
+
             <li role="separator" class="divider"></li>
             <li>
               <a href ng-click="deleteFile(file)">

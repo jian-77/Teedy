@@ -52,6 +52,13 @@ import java.util.List;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipOutputStream;
 
+// 添加到文件顶部的导入部分
+import okhttp3.OkHttpClient;
+import okhttp3.Request;
+import org.json.JSONArray;
+import org.json.JSONObject;
+import java.util.concurrent.TimeUnit;
+
 /**
  * File REST resources.
  * 
@@ -541,7 +548,6 @@ public class FileResource extends BaseResource {
                 .add("status", "ok");
         return Response.ok().entity(response.build()).build();
     }
-    
     /**
      * Returns a file.
      *
@@ -588,6 +594,258 @@ public class FileResource extends BaseResource {
                 return Response.ok(Strings.nullToEmpty(file.getContent()))
                         .header(HttpHeaders.CONTENT_TYPE, "text/plain; charset=utf-8")
                         .build();
+            }
+
+            storedFile = DirectoryUtil.getStorageDirectory().resolve(fileId + "_" + size);
+            mimeType = MimeType.IMAGE_JPEG; // Thumbnails are JPEG
+            decrypt = true; // Thumbnails are encrypted
+            if (!Files.exists(storedFile)) {
+                try {
+                    storedFile = Paths.get(getClass().getResource("/image/file-" + size + ".png").toURI());
+                } catch (URISyntaxException e) {
+                    // Ignore
+                }
+                mimeType = MimeType.IMAGE_PNG;
+                decrypt = false;
+            }
+        } else {
+            storedFile = DirectoryUtil.getStorageDirectory().resolve(fileId);
+            mimeType = file.getMimeType();
+            decrypt = true; // Original files are encrypted
+        }
+        
+        // Stream the output and decrypt it if necessary
+        StreamingOutput stream;
+        
+        // A file is always encrypted by the creator of it
+        User user = userDao.getById(file.getUserId());
+        
+        // Write the decrypted file to the output
+        try {
+            InputStream fileInputStream = Files.newInputStream(storedFile);
+            final InputStream responseInputStream = decrypt ?
+                    EncryptionUtil.decryptInputStream(fileInputStream, user.getPrivateKey()) : fileInputStream;
+                    
+            stream = outputStream -> {
+                try {
+                    ByteStreams.copy(responseInputStream, outputStream);
+                } finally {
+                    try {
+                        responseInputStream.close();
+                        outputStream.close();
+                    } catch (IOException e) {
+                        // Ignore
+                    }
+                }
+            };
+        } catch (Exception e) {
+            return Response.status(Status.SERVICE_UNAVAILABLE).build();
+        }
+
+        Response.ResponseBuilder builder = Response.ok(stream)
+                .header(HttpHeaders.CONTENT_DISPOSITION, "inline; filename=\"" + file.getFullName("data") + "\"")
+                .header(HttpHeaders.CONTENT_TYPE, mimeType);
+        if (decrypt) {
+            // Cache real files
+            builder.header(HttpHeaders.CACHE_CONTROL, "private")
+                    .header(HttpHeaders.EXPIRES, HttpUtil.buildExpiresHeader(3_600_000L * 24L * 365L));
+        } else {
+            // Do not cache the temporary thumbnail
+            builder.header(HttpHeaders.CACHE_CONTROL, "no-store, must-revalidate")
+                    .header(HttpHeaders.EXPIRES, "0");
+        }
+        return builder.build();
+    }
+
+    /**
+     * Returns a file.
+     *
+     * @api {get} /file/:id/data Get a file data
+     * @apiName GetFile
+     * @apiGroup File
+     * @apiParam {String} id File ID
+     * @apiParam {String} share Share ID
+     * @apiParam {String="web","thumb","content"} [size] Size variation
+     * @apiSuccess {Object} file The file data is the whole response
+     * @apiError (client) SizeError Size must be web or thumb
+     * @apiError (client) ForbiddenError Access denied or document not visible
+     * @apiError (client) NotFound File not found
+     * @apiError (server) ServiceUnavailable Error reading the file
+     * @apiPermission none
+     * @apiVersion 1.5.0
+     *
+     * @param fileId File ID
+     * @return Response
+     */
+    @GET
+    @Path("{id: [a-z0-9\\-]+}/analysis")
+    @Produces(MediaType.APPLICATION_OCTET_STREAM)
+    public Response AI(
+            @PathParam("id") final String fileId,
+            @QueryParam("share") String shareId,
+            @QueryParam("size") String size) {
+        authenticate();
+        
+        if (size != null && !Lists.newArrayList("web", "thumb", "content").contains(size)) {
+            throw new ClientException("SizeError", "Size must be web, thumb or content");
+        }
+
+        // Get the file
+        File file = findFile(fileId, shareId);
+
+        // Get the stored file
+        UserDao userDao = new UserDao();
+        java.nio.file.Path storedFile;
+        String mimeType;
+        boolean decrypt;
+        if (size != null) {
+            if (size.equals("content")) {
+               //对content进行处理
+               String fileContent = Strings.nullToEmpty(file.getContent());
+        
+               // 调用DeepSeek模型进行分析
+               try {
+                    String analyzedContent = analyzeContentWithDeepSeek(fileContent);
+                   
+                   // 将原始内容和分析结果合并返回
+                   String responseContent =  "分析结果:\n"+ analyzedContent;
+                   
+                   return Response.ok(responseContent)
+                           .header(HttpHeaders.CONTENT_TYPE, "text/plain; charset=utf-8")
+                           .build();
+               } catch (Exception e) {
+                   // 如果分析失败，记录错误并返回原始内容
+                   return Response.ok("分析处理失败，原因:\n" + e)
+                           .header(HttpHeaders.CONTENT_TYPE, "text/plain; charset=utf-8")
+                           .build();
+               }
+            }
+
+            storedFile = DirectoryUtil.getStorageDirectory().resolve(fileId + "_" + size);
+            mimeType = MimeType.IMAGE_JPEG; // Thumbnails are JPEG
+            decrypt = true; // Thumbnails are encrypted
+            if (!Files.exists(storedFile)) {
+                try {
+                    storedFile = Paths.get(getClass().getResource("/image/file-" + size + ".png").toURI());
+                } catch (URISyntaxException e) {
+                    // Ignore
+                }
+                mimeType = MimeType.IMAGE_PNG;
+                decrypt = false;
+            }
+        } else {
+            //size 为 null
+            storedFile = DirectoryUtil.getStorageDirectory().resolve(fileId);
+            mimeType = file.getMimeType();
+            decrypt = true; // Original files are encrypted
+        }
+        
+        // Stream the output and decrypt it if necessary
+        StreamingOutput stream;
+        
+        // A file is always encrypted by the creator of it
+        User user = userDao.getById(file.getUserId());
+        
+        // Write the decrypted file to the output
+        try {
+            InputStream fileInputStream = Files.newInputStream(storedFile);
+            final InputStream responseInputStream = decrypt ?
+                    EncryptionUtil.decryptInputStream(fileInputStream, user.getPrivateKey()) : fileInputStream;
+                    
+            stream = outputStream -> {
+                try {
+                    ByteStreams.copy(responseInputStream, outputStream);
+                } finally {
+                    try {
+                        responseInputStream.close();
+                        outputStream.close();
+                    } catch (IOException e) {
+                        // Ignore
+                    }
+                }
+            };
+        } catch (Exception e) {
+            return Response.status(Status.SERVICE_UNAVAILABLE).build();
+        }
+
+        Response.ResponseBuilder builder = Response.ok(stream)
+                .header(HttpHeaders.CONTENT_DISPOSITION, "inline; filename=\"" + file.getFullName("data") + "\"")
+                .header(HttpHeaders.CONTENT_TYPE, mimeType);
+        if (decrypt) {
+            // Cache real files
+            builder.header(HttpHeaders.CACHE_CONTROL, "private")
+                    .header(HttpHeaders.EXPIRES, HttpUtil.buildExpiresHeader(3_600_000L * 24L * 365L));
+        } else {
+            // Do not cache the temporary thumbnail
+            builder.header(HttpHeaders.CACHE_CONTROL, "no-store, must-revalidate")
+                    .header(HttpHeaders.EXPIRES, "0");
+        }
+        return builder.build();
+    }
+
+    /**
+     * Returns a translation
+     *
+     * @api {get} /file/:id/translate Get a translate data
+     * @apiName GetFile
+     * @apiGroup File
+     * @apiParam {String} id File ID
+     * @apiParam {String} share Share ID
+     * @apiParam {String="web","thumb","content"} [size] Size variation
+     * @apiSuccess {Object} file The file data is the whole response
+     * @apiError (client) SizeError Size must be web or thumb
+     * @apiError (client) ForbiddenError Access denied or document not visible
+     * @apiError (client) NotFound File not found
+     * @apiError (server) ServiceUnavailable Error reading the file
+     * @apiPermission none
+     * @apiVersion 1.5.0
+     *
+     * @param fileId File IDtranslate
+     * @return Response
+     */
+    @GET
+    @Path("{id: [a-z0-9\\-]+}/translate")
+    @Produces(MediaType.APPLICATION_OCTET_STREAM)
+    public Response translate(
+            @PathParam("id") final String fileId,
+            @QueryParam("share") String shareId,
+            @QueryParam("size") String size) {
+        authenticate();
+        
+        if (size != null && !Lists.newArrayList("web", "thumb", "content").contains(size)) {
+            throw new ClientException("SizeError", "Size must be web, thumb or content");
+        }
+
+        // Get the file
+        File file = findFile(fileId, shareId);
+
+        // Get the stored file
+        UserDao userDao = new UserDao();
+        java.nio.file.Path storedFile;
+        String mimeType;
+        boolean decrypt;
+        if (size != null) {
+            if (size.equals("content")) {
+
+                //对content进行处理
+               String fileContent = Strings.nullToEmpty(file.getContent());
+        
+               // 调用DeepSeek模型进行翻译
+               try {
+                    String translateContent = translateContentWithDeepSeek(fileContent);
+                   
+                   // 将原始内容和分析结果合并返回
+                   String responseContent =  translateContent;
+                   
+                   return Response.ok(responseContent)
+                           .header(HttpHeaders.CONTENT_TYPE, "text/plain; charset=utf-8")
+                           .build();
+               } catch (Exception e) {
+                   // 如果分析失败，记录错误并返回原始内容
+                   return Response.ok("分析处理失败，原因:\n" + e)
+                           .header(HttpHeaders.CONTENT_TYPE, "text/plain; charset=utf-8")
+                           .build();
+               }
             }
 
             storedFile = DirectoryUtil.getStorageDirectory().resolve(fileId + "_" + size);
@@ -809,4 +1067,179 @@ public class FileResource extends BaseResource {
             }
         }
     }
+
+
+/**
+ * 使用DeepSeek大模型分析文件内容
+ * 
+ * @param content 文件内容
+ * @return 分析结果
+ * @throws Exception 如果分析过程中发生错误
+ */
+private String analyzeContentWithDeepSeek(String content) throws Exception {
+    // 如果内容为空，返回提示信息
+    if (content == null || content.trim().isEmpty()) {
+        return "文件内容为空，无法分析。";
+    }
+    
+    // 创建HTTP客户端
+    OkHttpClient client = new OkHttpClient.Builder()
+            .connectTimeout(30, TimeUnit.SECONDS)
+            .writeTimeout(60, TimeUnit.SECONDS)
+            .readTimeout(60, TimeUnit.SECONDS)
+            .build();
+    
+    // DeepSeek API密钥 
+    String apiKey = "sk-20df60179b764e6780ce95c52d9d1ac8";
+    if (apiKey == null || apiKey.trim().isEmpty()) {
+        // 从环境变量尝试获取
+        apiKey = System.getenv("DEEPSEEK_API_KEY");
+    }
+    
+    if (apiKey == null || apiKey.trim().isEmpty()) {
+        return "未配置DeepSeek API密钥,无法进行分析。请在系统属性或环境变量中设置deepseek.api.key。";
+    }
+    
+    // 构建请求体
+    JSONObject requestBody = new JSONObject();
+    requestBody.put("model", "deepseek-chat");
+    
+    JSONArray messages = new JSONArray();
+    JSONObject systemMessage = new JSONObject();
+    systemMessage.put("role", "system");
+    systemMessage.put("content", "你是一个专业的文档分析助手，请对以下文档内容进行分析，提取关键信息，识别文档类型，并提供简要总结。");
+    
+    JSONObject userMessage = new JSONObject();
+    userMessage.put("role", "user");
+    // 限制内容长度，避免超出API限制
+    String truncatedContent = content.length() > 4000 ? content.substring(0, 4000) + "...(内容已截断)" : content;
+    userMessage.put("content", "请分析以下文档内容：\n\n" + truncatedContent);
+    
+    messages.put(systemMessage);
+    messages.put(userMessage);
+    
+    requestBody.put("messages", messages);
+    requestBody.put("temperature", 0.3);  // 设置较低的温度以获得更确定性的回答
+    requestBody.put("max_tokens", 1000);  // 限制回答长度
+    
+    // 创建请求
+    Request request = new Request.Builder()
+            .url("https://api.deepseek.com/v1/chat/completions")
+            .addHeader("Authorization", "Bearer " + apiKey)
+            .addHeader("Content-Type", "application/json")
+            .post(okhttp3.RequestBody.create(
+            requestBody.toString(),
+            okhttp3.MediaType.parse("application/json")))
+            .build();
+    
+    // 发送请求并处理响应
+    try (okhttp3.Response response = client.newCall(request).execute()) {
+        if (!response.isSuccessful()) {
+            throw new IOException("DeepSeek API请求失败: " + response.code() + " " + response.message());
+        }
+        
+        String responseBody = response.body().string();
+        JSONObject jsonResponse = new JSONObject(responseBody);
+        
+        // 从响应中提取分析结果
+        JSONArray choices = jsonResponse.getJSONArray("choices");
+        if (choices.length() > 0) {
+            JSONObject choice = choices.getJSONObject(0);
+            JSONObject message = choice.getJSONObject("message");
+            return message.getString("content");
+        } else {
+            return "无法从DeepSeek获取分析结果。";
+        }
+}catch (Exception e) {
+        throw new Exception("调用DeepSeek API时发生错误: " + e.getMessage(), e);
+    }
+}
+
+
+/**
+ * 使用DeepSeek大模型翻译文件内容
+ * 
+ * @param content 文件内容
+ * @return 翻译结果
+ * @throws Exception 如果分析过程中发生错误
+ */
+private String translateContentWithDeepSeek(String content) throws Exception {
+    // 如果内容为空，返回提示信息
+    if (content == null || content.trim().isEmpty()) {
+        return "文件内容为空，无法分析。";
+    }
+    
+    // 创建HTTP客户端
+    OkHttpClient client = new OkHttpClient.Builder()
+            .connectTimeout(30, TimeUnit.SECONDS)
+            .writeTimeout(60, TimeUnit.SECONDS)
+            .readTimeout(60, TimeUnit.SECONDS)
+            .build();
+    
+    // DeepSeek API密钥 
+    String apiKey = "sk-20df60179b764e6780ce95c52d9d1ac8";
+    if (apiKey == null || apiKey.trim().isEmpty()) {
+        // 从环境变量尝试获取
+        apiKey = System.getenv("DEEPSEEK_API_KEY");
+    }
+    
+    if (apiKey == null || apiKey.trim().isEmpty()) {
+        return "未配置DeepSeek API密钥,无法进行分析。请在系统属性或环境变量中设置deepseek.api.key。";
+    }
+    
+    // 构建请求体
+    JSONObject requestBody = new JSONObject();
+    requestBody.put("model", "deepseek-chat");
+    
+    JSONArray messages = new JSONArray();
+    JSONObject systemMessage = new JSONObject();
+    systemMessage.put("role", "system");
+    systemMessage.put("content", "你是一个专业的文档翻译，请对以下文档内容进行翻译，若检测到文档是中文，则翻译成英文；若检测到英文，则翻译成中文");
+    
+    JSONObject userMessage = new JSONObject();
+    userMessage.put("role", "user");
+    // 限制内容长度，避免超出API限制
+    String truncatedContent = content.length() > 4000 ? content.substring(0, 4000) + "...(内容已截断)" : content;
+    userMessage.put("content", "请翻译以下文档内容：\n\n" + truncatedContent);
+    
+    messages.put(systemMessage);
+    messages.put(userMessage);
+    
+    requestBody.put("messages", messages);
+    requestBody.put("temperature", 0.3);  // 设置较低的温度以获得更确定性的回答
+    requestBody.put("max_tokens", 1000);  // 限制回答长度
+    
+    // 创建请求
+    Request request = new Request.Builder()
+            .url("https://api.deepseek.com/v1/chat/completions")
+            .addHeader("Authorization", "Bearer " + apiKey)
+            .addHeader("Content-Type", "application/json")
+            .post(okhttp3.RequestBody.create(
+            requestBody.toString(),
+            okhttp3.MediaType.parse("application/json")))
+            .build();
+    
+    // 发送请求并处理响应
+    try (okhttp3.Response response = client.newCall(request).execute()) {
+        if (!response.isSuccessful()) {
+            throw new IOException("DeepSeek API请求失败: " + response.code() + " " + response.message());
+        }
+        
+        String responseBody = response.body().string();
+        JSONObject jsonResponse = new JSONObject(responseBody);
+        
+        // 从响应中提取分析结果
+        JSONArray choices = jsonResponse.getJSONArray("choices");
+        if (choices.length() > 0) {
+            JSONObject choice = choices.getJSONObject(0);
+            JSONObject message = choice.getJSONObject("message");
+            return message.getString("content");
+        } else {
+            return "无法从DeepSeek获取分析结果。";
+        }
+}catch (Exception e) {
+        throw new Exception("调用DeepSeek API时发生错误: " + e.getMessage(), e);
+    }
+
+}
 }
